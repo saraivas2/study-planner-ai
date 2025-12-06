@@ -14,6 +14,27 @@ export type Database = {
   }
   public: {
     Tables: {
+      login_attempts: {
+        Row: {
+          attempted_at: string
+          email: string
+          id: string
+          success: boolean
+        }
+        Insert: {
+          attempted_at?: string
+          email: string
+          id?: string
+          success?: boolean
+        }
+        Update: {
+          attempted_at?: string
+          email?: string
+          id?: string
+          success?: boolean
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -25,6 +46,8 @@ export type Database = {
           full_name: string | null
           id: string
           institution: string | null
+          period_end: string | null
+          period_start: string | null
           phone: string | null
           semester: number | null
           updated_at: string
@@ -40,6 +63,8 @@ export type Database = {
           full_name?: string | null
           id?: string
           institution?: string | null
+          period_end?: string | null
+          period_start?: string | null
           phone?: string | null
           semester?: number | null
           updated_at?: string
@@ -55,6 +80,8 @@ export type Database = {
           full_name?: string | null
           id?: string
           institution?: string | null
+          period_end?: string | null
+          period_start?: string | null
           phone?: string | null
           semester?: number | null
           updated_at?: string
