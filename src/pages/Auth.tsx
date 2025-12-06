@@ -5,7 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { BookOpen, Mail, Lock, User, ArrowRight, Loader2 } from 'lucide-react';
+import { BookOpen, Mail, Lock, User, ArrowRight, Loader2, AlertCircle, Check, X } from 'lucide-react';
+import { registerSchema, loginSchema } from '@/lib/validations';
+import { checkRateLimit, recordFailedAttempt, clearLoginAttempts } from '@/lib/rateLimit';
+import { z } from 'zod';
 
 const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -13,8 +16,16 @@ const Auth = () => {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockMessage, setBlockMessage] = useState<string | null>(null);
+  const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const { user, signIn, signUp } = useAuth();
   const navigate = useNavigate();
+
+  // Password strength indicators
+  const hasMinLength = password.length >= 8;
+  const hasUppercase = /[A-Z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
 
   useEffect(() => {
     if (user) {
@@ -22,34 +33,87 @@ const Auth = () => {
     }
   }, [user, navigate]);
 
+  // Check rate limit when email changes (debounced)
+  useEffect(() => {
+    if (!isLogin || !email) return;
+
+    const timer = setTimeout(async () => {
+      const result = await checkRateLimit(email);
+      setIsBlocked(result.blocked);
+      setBlockMessage(result.message);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [email, isLogin]);
+
+  const validateForm = (): boolean => {
+    setErrors({});
+    
+    try {
+      if (isLogin) {
+        loginSchema.parse({ email, password });
+      } else {
+        registerSchema.parse({ fullName, email, password });
+      }
+      return true;
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const newErrors: { [key: string]: string } = {};
+        error.errors.forEach((err) => {
+          const field = err.path[0] as string;
+          newErrors[field] = err.message;
+        });
+        setErrors(newErrors);
+      }
+      return false;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!validateForm()) return;
+
+    if (isLogin && isBlocked) {
+      toast.error(blockMessage || 'Conta bloqueada temporariamente. Tente novamente mais tarde.');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
       if (isLogin) {
+        // Check rate limit before attempting login
+        const rateLimitCheck = await checkRateLimit(email);
+        if (rateLimitCheck.blocked) {
+          setIsBlocked(true);
+          setBlockMessage(rateLimitCheck.message);
+          toast.error(rateLimitCheck.message || 'Conta bloqueada temporariamente.');
+          setIsLoading(false);
+          return;
+        }
+
         const { error } = await signIn(email, password);
         if (error) {
-          if (error.message.includes('Invalid login credentials')) {
-            toast.error('Credenciais inválidas. Verifique seu email e senha.');
+          // Record failed attempt
+          const result = await recordFailedAttempt(email);
+          
+          if (result.blocked) {
+            setIsBlocked(true);
+            setBlockMessage('Conta bloqueada por 5 minutos após 3 tentativas falhas.');
+            toast.error('Conta bloqueada por 5 minutos após 3 tentativas falhas.');
+          } else if (error.message.includes('Invalid login credentials')) {
+            const attemptsLeft = 3 - (result.failedAttempts || 0);
+            toast.error(`Credenciais inválidas. ${attemptsLeft > 0 ? `${attemptsLeft} tentativa(s) restante(s).` : ''}`);
           } else {
             toast.error(error.message);
           }
         } else {
+          await clearLoginAttempts(email);
           toast.success('Login realizado com sucesso!');
           navigate('/');
         }
       } else {
-        if (!fullName.trim()) {
-          toast.error('Por favor, insira seu nome completo.');
-          setIsLoading(false);
-          return;
-        }
-        if (password.length < 6) {
-          toast.error('A senha deve ter pelo menos 6 caracteres.');
-          setIsLoading(false);
-          return;
-        }
         const { error } = await signUp(email, password, fullName);
         if (error) {
           if (error.message.includes('User already registered')) {
@@ -67,6 +131,48 @@ const Auth = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const PasswordStrengthIndicator = () => {
+    if (isLogin || !password) return null;
+    
+    return (
+      <div className="space-y-2 mt-2 p-3 bg-muted/50 rounded-lg">
+        <p className="text-xs font-medium text-muted-foreground">Requisitos da senha:</p>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-xs">
+            {hasMinLength ? (
+              <Check className="w-3 h-3 text-success" />
+            ) : (
+              <X className="w-3 h-3 text-muted-foreground" />
+            )}
+            <span className={hasMinLength ? 'text-success' : 'text-muted-foreground'}>
+              Mínimo 8 caracteres
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            {hasUppercase ? (
+              <Check className="w-3 h-3 text-success" />
+            ) : (
+              <X className="w-3 h-3 text-muted-foreground" />
+            )}
+            <span className={hasUppercase ? 'text-success' : 'text-muted-foreground'}>
+              Uma letra maiúscula
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            {hasNumber ? (
+              <Check className="w-3 h-3 text-success" />
+            ) : (
+              <X className="w-3 h-3 text-muted-foreground" />
+            )}
+            <span className={hasNumber ? 'text-success' : 'text-muted-foreground'}>
+              Um número
+            </span>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -128,6 +234,19 @@ const Auth = () => {
             </p>
           </div>
 
+          {/* Block Warning */}
+          {isBlocked && isLogin && (
+            <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-destructive">Conta bloqueada temporariamente</p>
+                <p className="text-xs text-destructive/80 mt-1">
+                  {blockMessage || 'Aguarde 5 minutos antes de tentar novamente.'}
+                </p>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-5">
             {!isLogin && (
               <div className="space-y-2 animate-fade-in">
@@ -142,10 +261,12 @@ const Auth = () => {
                     placeholder="Seu nome completo"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
-                    className="pl-10"
-                    required={!isLogin}
+                    className={`pl-10 ${errors.fullName ? 'border-destructive' : ''}`}
                   />
                 </div>
+                {errors.fullName && (
+                  <p className="text-xs text-destructive">{errors.fullName}</p>
+                )}
               </div>
             )}
 
@@ -161,10 +282,12 @@ const Auth = () => {
                   placeholder="seu@email.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="pl-10"
-                  required
+                  className={`pl-10 ${errors.email ? 'border-destructive' : ''}`}
                 />
               </div>
+              {errors.email && (
+                <p className="text-xs text-destructive">{errors.email}</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -179,11 +302,13 @@ const Auth = () => {
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="pl-10"
-                  required
-                  minLength={6}
+                  className={`pl-10 ${errors.password ? 'border-destructive' : ''}`}
                 />
               </div>
+              {errors.password && (
+                <p className="text-xs text-destructive">{errors.password}</p>
+              )}
+              <PasswordStrengthIndicator />
             </div>
 
             <Button
@@ -191,7 +316,7 @@ const Auth = () => {
               variant="accent"
               size="lg"
               className="w-full"
-              disabled={isLoading}
+              disabled={isLoading || (isLogin && isBlocked)}
             >
               {isLoading ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -207,7 +332,12 @@ const Auth = () => {
           <div className="mt-6 text-center">
             <button
               type="button"
-              onClick={() => setIsLogin(!isLogin)}
+              onClick={() => {
+                setIsLogin(!isLogin);
+                setErrors({});
+                setIsBlocked(false);
+                setBlockMessage(null);
+              }}
               className="text-muted-foreground hover:text-foreground transition-colors"
             >
               {isLogin ? (
