@@ -89,6 +89,89 @@ export type Database = {
         }
         Relationships: []
       }
+      subject_schedules: {
+        Row: {
+          created_at: string
+          day_of_week: number
+          end_time: string
+          id: string
+          location: string | null
+          start_time: string
+          subject_id: string
+        }
+        Insert: {
+          created_at?: string
+          day_of_week: number
+          end_time: string
+          id?: string
+          location?: string | null
+          start_time: string
+          subject_id: string
+        }
+        Update: {
+          created_at?: string
+          day_of_week?: number
+          end_time?: string
+          id?: string
+          location?: string | null
+          start_time?: string
+          subject_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subject_schedules_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      subjects: {
+        Row: {
+          class_group: string | null
+          code: string | null
+          created_at: string
+          dedication_weight: number | null
+          difficulty_weight: number | null
+          id: string
+          name: string
+          professor: string | null
+          status: string | null
+          type: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          class_group?: string | null
+          code?: string | null
+          created_at?: string
+          dedication_weight?: number | null
+          difficulty_weight?: number | null
+          id?: string
+          name: string
+          professor?: string | null
+          status?: string | null
+          type?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          class_group?: string | null
+          code?: string | null
+          created_at?: string
+          dedication_weight?: number | null
+          difficulty_weight?: number | null
+          id?: string
+          name?: string
+          professor?: string | null
+          status?: string | null
+          type?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

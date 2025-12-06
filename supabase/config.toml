@@ -2,3 +2,6 @@ project_id = "qfestguicuwfkfbxscws"
 
 [functions.rate-limit]
 verify_jwt = false
+
+[functions.extract-enrollment]
+verify_jwt = true
