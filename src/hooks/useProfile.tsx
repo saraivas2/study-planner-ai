@@ -15,6 +15,8 @@ export interface Profile {
   semester: number | null;
   enrollment_number: string | null;
   avatar_url: string | null;
+  period_start: string | null;
+  period_end: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -36,9 +38,9 @@ export function useProfile() {
         .from('profiles')
         .select('*')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
-      if (error && error.code !== 'PGRST116') {
+      if (error) {
         throw error;
       }
 

@@ -7,13 +7,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { User, GraduationCap, Save, Loader2 } from 'lucide-react';
+import { User, GraduationCap, Calendar, Save, Loader2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { profileSchema } from '@/lib/validations';
+import { z } from 'zod';
 
 const Profile = () => {
   const { profile, loading, updateProfile } = useProfile();
   const { user } = useAuth();
   const [isSaving, setIsSaving] = useState(false);
+  const [errors, setErrors] = useState<{ [key: string]: string }>({});
   
   const [formData, setFormData] = useState({
     full_name: '',
@@ -24,6 +27,8 @@ const Profile = () => {
     course: '',
     semester: '',
     enrollment_number: '',
+    period_start: '',
+    period_end: '',
   });
 
   useEffect(() => {
@@ -37,6 +42,8 @@ const Profile = () => {
         course: profile.course || '',
         semester: profile.semester?.toString() || '',
         enrollment_number: profile.enrollment_number || '',
+        period_start: profile.period_start || '',
+        period_end: profile.period_end || '',
       });
     }
   }, [profile, user]);
@@ -44,15 +51,76 @@ const Profile = () => {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
+    // Clear error when user starts typing
+    if (errors[name]) {
+      setErrors((prev) => ({ ...prev, [name]: '' }));
+    }
+  };
+
+  const validateForm = (): boolean => {
+    setErrors({});
+    
+    try {
+      profileSchema.parse({
+        ...formData,
+        semester: formData.semester ? parseInt(formData.semester) : null,
+        period_start: formData.period_start || null,
+        period_end: formData.period_end || null,
+      });
+
+      // Additional validation: period_end must be after period_start
+      if (formData.period_start && formData.period_end) {
+        if (new Date(formData.period_end) <= new Date(formData.period_start)) {
+          setErrors({ period_end: 'Data de fim deve ser posterior à data de início' });
+          return false;
+        }
+      }
+
+      return true;
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const newErrors: { [key: string]: string } = {};
+        error.errors.forEach((err) => {
+          const field = err.path[0] as string;
+          newErrors[field] = err.message;
+        });
+        setErrors(newErrors);
+      }
+      return false;
+    }
   };
 
   const handleSave = async () => {
+    if (!validateForm()) {
+      toast.error('Por favor, corrija os erros no formulário.');
+      return;
+    }
+
     setIsSaving(true);
+    
+    // Check if period changed - this will trigger recalculation in future modules
+    const periodChanged = 
+      profile?.period_start !== (formData.period_start || null) ||
+      profile?.period_end !== (formData.period_end || null);
+
     const updates = {
-      ...formData,
+      full_name: formData.full_name || null,
+      phone: formData.phone || null,
+      birth_date: formData.birth_date || null,
+      institution: formData.institution || null,
+      course: formData.course || null,
       semester: formData.semester ? parseInt(formData.semester) : null,
+      enrollment_number: formData.enrollment_number || null,
+      period_start: formData.period_start || null,
+      period_end: formData.period_end || null,
     };
-    await updateProfile(updates);
+
+    const { error } = await updateProfile(updates);
+    
+    if (!error && periodChanged && formData.period_start && formData.period_end) {
+      toast.info('Período letivo atualizado. As sugestões de estudo serão recalculadas.');
+    }
+
     setIsSaving(false);
   };
 
@@ -97,14 +165,18 @@ const Profile = () => {
         </Card>
 
         <Tabs defaultValue="personal" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 h-12">
+          <TabsList className="grid w-full grid-cols-3 h-12">
             <TabsTrigger value="personal" className="flex items-center gap-2">
               <User className="w-4 h-4" />
-              Dados Pessoais
+              <span className="hidden sm:inline">Dados</span> Pessoais
             </TabsTrigger>
             <TabsTrigger value="academic" className="flex items-center gap-2">
               <GraduationCap className="w-4 h-4" />
-              Dados Acadêmicos
+              <span className="hidden sm:inline">Dados</span> Acadêmicos
+            </TabsTrigger>
+            <TabsTrigger value="period" className="flex items-center gap-2">
+              <Calendar className="w-4 h-4" />
+              Período
             </TabsTrigger>
           </TabsList>
 
@@ -126,7 +198,11 @@ const Profile = () => {
                       value={formData.full_name}
                       onChange={handleChange}
                       placeholder="Seu nome completo"
+                      className={errors.full_name ? 'border-destructive' : ''}
                     />
+                    {errors.full_name && (
+                      <p className="text-xs text-destructive">{errors.full_name}</p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
@@ -138,7 +214,9 @@ const Profile = () => {
                       onChange={handleChange}
                       placeholder="seu@email.com"
                       disabled
+                      className="bg-muted"
                     />
+                    <p className="text-xs text-muted-foreground">Email não pode ser alterado</p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="phone">Telefone</Label>
@@ -148,7 +226,11 @@ const Profile = () => {
                       value={formData.phone}
                       onChange={handleChange}
                       placeholder="(00) 00000-0000"
+                      className={errors.phone ? 'border-destructive' : ''}
                     />
+                    {errors.phone && (
+                      <p className="text-xs text-destructive">{errors.phone}</p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="birth_date">Data de Nascimento</Label>
@@ -183,7 +265,11 @@ const Profile = () => {
                       value={formData.institution}
                       onChange={handleChange}
                       placeholder="Nome da universidade/faculdade"
+                      className={errors.institution ? 'border-destructive' : ''}
                     />
+                    {errors.institution && (
+                      <p className="text-xs text-destructive">{errors.institution}</p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="course">Curso</Label>
@@ -193,7 +279,11 @@ const Profile = () => {
                       value={formData.course}
                       onChange={handleChange}
                       placeholder="Seu curso"
+                      className={errors.course ? 'border-destructive' : ''}
                     />
+                    {errors.course && (
+                      <p className="text-xs text-destructive">{errors.course}</p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="semester">Semestre Atual</Label>
@@ -206,7 +296,11 @@ const Profile = () => {
                       value={formData.semester}
                       onChange={handleChange}
                       placeholder="Ex: 5"
+                      className={errors.semester ? 'border-destructive' : ''}
                     />
+                    {errors.semester && (
+                      <p className="text-xs text-destructive">{errors.semester}</p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="enrollment_number">Matrícula</Label>
@@ -216,7 +310,65 @@ const Profile = () => {
                       value={formData.enrollment_number}
                       onChange={handleChange}
                       placeholder="Número da matrícula"
+                      className={errors.enrollment_number ? 'border-destructive' : ''}
                     />
+                    {errors.enrollment_number && (
+                      <p className="text-xs text-destructive">{errors.enrollment_number}</p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="period" className="animate-fade-in">
+            <Card>
+              <CardHeader>
+                <CardTitle>Período Letivo</CardTitle>
+                <CardDescription>
+                  Defina as datas de início e fim do seu período letivo atual
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="p-4 bg-warning/10 border border-warning/20 rounded-lg flex items-start gap-3 mb-4">
+                  <AlertCircle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-warning">Atenção</p>
+                    <p className="text-xs text-warning/80 mt-1">
+                      Ao alterar o período letivo, todas as sugestões de estudo futuras serão removidas 
+                      e a IA irá recalcular o plano para o novo período.
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="period_start">Data de Início</Label>
+                    <Input
+                      id="period_start"
+                      name="period_start"
+                      type="date"
+                      value={formData.period_start}
+                      onChange={handleChange}
+                      className={errors.period_start ? 'border-destructive' : ''}
+                    />
+                    {errors.period_start && (
+                      <p className="text-xs text-destructive">{errors.period_start}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="period_end">Data de Fim</Label>
+                    <Input
+                      id="period_end"
+                      name="period_end"
+                      type="date"
+                      value={formData.period_end}
+                      onChange={handleChange}
+                      className={errors.period_end ? 'border-destructive' : ''}
+                    />
+                    {errors.period_end && (
+                      <p className="text-xs text-destructive">{errors.period_end}</p>
+                    )}
                   </div>
                 </div>
               </CardContent>
