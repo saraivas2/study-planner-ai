@@ -14,6 +14,65 @@ export type Database = {
   }
   public: {
     Tables: {
+      calendar_events: {
+        Row: {
+          created_at: string
+          description: string | null
+          end_datetime: string | null
+          event_type: string
+          id: string
+          is_recurring: boolean | null
+          recurrence_days: number[] | null
+          recurrence_end_date: string | null
+          recurrence_pattern: string | null
+          start_datetime: string
+          subject_id: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          end_datetime?: string | null
+          event_type: string
+          id?: string
+          is_recurring?: boolean | null
+          recurrence_days?: number[] | null
+          recurrence_end_date?: string | null
+          recurrence_pattern?: string | null
+          start_datetime: string
+          subject_id?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          end_datetime?: string | null
+          event_type?: string
+          id?: string
+          is_recurring?: boolean | null
+          recurrence_days?: number[] | null
+          recurrence_end_date?: string | null
+          recurrence_pattern?: string | null
+          start_datetime?: string
+          subject_id?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_events_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       login_attempts: {
         Row: {
           attempted_at: string
