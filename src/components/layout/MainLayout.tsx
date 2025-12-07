@@ -10,7 +10,7 @@ interface MainLayoutProps {
 }
 
 const navItems = [
-  { path: '/', icon: Calendar, label: 'Calendário' },
+  { path: '/calendario', icon: Calendar, label: 'Calendário' },
   { path: '/materias', icon: BookOpen, label: 'Matérias' },
   { path: '/perfil', icon: User, label: 'Perfil' },
   { path: '/notificacoes', icon: Bell, label: 'Notificações' },
