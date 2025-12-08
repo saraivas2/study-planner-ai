@@ -12,12 +12,15 @@ import {
 import { ptBR } from 'date-fns/locale';
 import { CalendarEvent } from '@/hooks/useCalendarEvents';
 import { Subject } from '@/hooks/useSubjects';
+import { StudyBlock } from '@/hooks/useStudySuggestions';
 import { cn } from '@/lib/utils';
+import { Brain } from 'lucide-react';
 
 interface MonthViewProps {
   currentDate: Date;
   events: CalendarEvent[];
   subjects: Subject[];
+  studyBlocks?: StudyBlock[];
   onEventClick: (event: CalendarEvent) => void;
   onDayClick: (date: Date) => void;
 }
@@ -37,7 +40,7 @@ const getEventDotColor = (eventType: string) => {
   }
 };
 
-export const MonthView = ({ currentDate, events, subjects, onEventClick, onDayClick }: MonthViewProps) => {
+export const MonthView = ({ currentDate, events, subjects, studyBlocks = [], onEventClick, onDayClick }: MonthViewProps) => {
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(currentDate);
   const calendarStart = startOfWeek(monthStart, { weekStartsOn: 0 });
@@ -104,6 +107,11 @@ export const MonthView = ({ currentDate, events, subjects, onEventClick, onDayCl
           const isCurrentMonth = isSameMonth(day, currentDate);
           const isToday = isSameDay(day, today);
           
+          // Get study blocks for this day (not breaks)
+          const dayBlocks = studyBlocks.filter(
+            block => isSameDay(block.startTime, day) && !block.isBreak
+          );
+          
           return (
             <div
               key={day.toISOString()}
@@ -123,7 +131,7 @@ export const MonthView = ({ currentDate, events, subjects, onEventClick, onDayCl
               
               {/* Event indicators */}
               <div className="space-y-1">
-                {dayEvents.slice(0, 3).map((event, idx) => (
+                {dayEvents.slice(0, 2).map((event) => (
                   <div
                     key={event.id}
                     className={cn(
@@ -135,9 +143,18 @@ export const MonthView = ({ currentDate, events, subjects, onEventClick, onDayCl
                     {event.title}
                   </div>
                 ))}
-                {dayEvents.length > 3 && (
+                
+                {/* Study block indicator */}
+                {dayBlocks.length > 0 && dayEvents.length < 2 && (
+                  <div className="text-xs px-1.5 py-0.5 rounded truncate bg-accent/50 text-accent-foreground border border-dashed border-accent flex items-center gap-1">
+                    <Brain className="w-3 h-3" />
+                    <span className="truncate">{dayBlocks.length} estudo{dayBlocks.length > 1 ? 's' : ''}</span>
+                  </div>
+                )}
+                
+                {dayEvents.length > 2 && (
                   <div className="text-xs text-muted-foreground">
-                    +{dayEvents.length - 3} mais
+                    +{dayEvents.length - 2} mais
                   </div>
                 )}
               </div>
