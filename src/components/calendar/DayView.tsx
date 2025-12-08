@@ -1,14 +1,20 @@
-import { format, isSameDay, parseISO, startOfDay, endOfDay } from 'date-fns';
+import { format, isSameDay, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { CalendarEvent } from '@/hooks/useCalendarEvents';
 import { Subject, SubjectSchedule } from '@/hooks/useSubjects';
+import { StudyBlock } from '@/hooks/useStudySuggestions';
 import { cn } from '@/lib/utils';
+import { Brain, Coffee, XCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface DayViewProps {
   currentDate: Date;
   events: CalendarEvent[];
   subjects: Subject[];
+  studyBlocks?: StudyBlock[];
   onEventClick: (event: CalendarEvent) => void;
+  onDelayStudy?: (subjectId: string) => Promise<boolean>;
 }
 
 const HOURS = Array.from({ length: 17 }, (_, i) => i + 6); // 6:00 to 22:00
@@ -28,7 +34,7 @@ const getEventColor = (eventType: string) => {
   }
 };
 
-export const DayView = ({ currentDate, events, subjects, onEventClick }: DayViewProps) => {
+export const DayView = ({ currentDate, events, subjects, studyBlocks = [], onEventClick, onDelayStudy }: DayViewProps) => {
   const dayOfWeek = currentDate.getDay();
 
   // Get class events from subjects schedules
@@ -68,12 +74,27 @@ export const DayView = ({ currentDate, events, subjects, onEventClick }: DayView
 
   const allEvents = [...classEvents, ...dayEvents];
 
+  // Filter study blocks for this day
+  const dayStudyBlocks = studyBlocks.filter(block => 
+    isSameDay(block.startTime, currentDate)
+  );
+
   const getEventPosition = (event: CalendarEvent) => {
     const startTime = parseISO(event.start_datetime);
     const endTime = event.end_datetime ? parseISO(event.end_datetime) : startTime;
     
     const startHour = startTime.getHours() + startTime.getMinutes() / 60;
     const endHour = endTime.getHours() + endTime.getMinutes() / 60;
+    
+    const top = ((startHour - 6) / 17) * 100;
+    const height = ((endHour - startHour) / 17) * 100;
+    
+    return { top: `${top}%`, height: `${Math.max(height, 3)}%` };
+  };
+
+  const getBlockPosition = (block: StudyBlock) => {
+    const startHour = block.startTime.getHours() + block.startTime.getMinutes() / 60;
+    const endHour = block.endTime.getHours() + block.endTime.getMinutes() / 60;
     
     const top = ((startHour - 6) / 17) * 100;
     const height = ((endHour - startHour) / 17) * 100;
@@ -136,6 +157,64 @@ export const DayView = ({ currentDate, events, subjects, onEventClick }: DayView
               </div>
             );
           })}
+
+          {/* Study Blocks (Suggested) */}
+          <TooltipProvider>
+            {dayStudyBlocks.map(block => {
+              const position = getBlockPosition(block);
+              return (
+                <Tooltip key={block.id}>
+                  <TooltipTrigger asChild>
+                    <div
+                      className={cn(
+                        "absolute left-0 right-0 p-2 rounded border-l-4 overflow-hidden",
+                        "border-dashed border-2 animate-pulse",
+                        block.isBreak 
+                          ? "bg-muted/40 border-muted-foreground/30 text-muted-foreground"
+                          : "bg-accent/30 border-accent text-accent-foreground"
+                      )}
+                      style={position}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {block.isBreak ? (
+                          <Coffee className="w-3 h-3 shrink-0" />
+                        ) : (
+                          <Brain className="w-3 h-3 shrink-0" />
+                        )}
+                        <span className="font-medium text-xs truncate">
+                          {block.isBreak ? 'Pausa' : block.subject.name}
+                        </span>
+                      </div>
+                      <div className="text-xs opacity-75 mt-0.5">
+                        {format(block.startTime, 'HH:mm')} - {format(block.endTime, 'HH:mm')}
+                      </div>
+                      {!block.isBreak && onDelayStudy && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDelayStudy(block.subject.id);
+                          }}
+                          className="absolute top-1 right-1 h-5 w-5 p-0 opacity-60 hover:opacity-100"
+                        >
+                          <XCircle className="w-3 h-3" />
+                        </Button>
+                      )}
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="font-medium">{block.isBreak ? 'Pausa sugerida' : 'Estudo sugerido'}</p>
+                    {!block.isBreak && (
+                      <p className="text-xs text-muted-foreground">
+                        Clique no X para marcar como "Não consegui"
+                      </p>
+                    )}
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
+          </TooltipProvider>
         </div>
       </div>
     </div>

@@ -1,15 +1,21 @@
-import { format, startOfWeek, addDays, isSameDay, parseISO, isWithinInterval } from 'date-fns';
+import { format, startOfWeek, addDays, isSameDay, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { CalendarEvent } from '@/hooks/useCalendarEvents';
 import { Subject } from '@/hooks/useSubjects';
+import { StudyBlock } from '@/hooks/useStudySuggestions';
 import { cn } from '@/lib/utils';
+import { Brain, Coffee, XCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface WeekViewProps {
   currentDate: Date;
   events: CalendarEvent[];
   subjects: Subject[];
+  studyBlocks?: StudyBlock[];
   onEventClick: (event: CalendarEvent) => void;
   onDayClick: (date: Date) => void;
+  onDelayStudy?: (subjectId: string) => Promise<boolean>;
 }
 
 const HOURS = Array.from({ length: 17 }, (_, i) => i + 6);
@@ -29,7 +35,7 @@ const getEventColor = (eventType: string) => {
   }
 };
 
-export const WeekView = ({ currentDate, events, subjects, onEventClick, onDayClick }: WeekViewProps) => {
+export const WeekView = ({ currentDate, events, subjects, studyBlocks = [], onEventClick, onDayClick, onDelayStudy }: WeekViewProps) => {
   const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 });
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const today = new Date();
@@ -75,12 +81,26 @@ export const WeekView = ({ currentDate, events, subjects, onEventClick, onDayCli
     return [...classEvents, ...dayEvents];
   };
 
+  const getEventsAndBlocksForDay = (date: Date) => {
+    return studyBlocks.filter(block => isSameDay(block.startTime, date));
+  };
+
   const getEventPosition = (event: CalendarEvent) => {
     const startTime = parseISO(event.start_datetime);
     const endTime = event.end_datetime ? parseISO(event.end_datetime) : startTime;
     
     const startHour = startTime.getHours() + startTime.getMinutes() / 60;
     const endHour = endTime.getHours() + endTime.getMinutes() / 60;
+    
+    const top = ((startHour - 6) / 17) * 100;
+    const height = ((endHour - startHour) / 17) * 100;
+    
+    return { top: `${top}%`, height: `${Math.max(height, 4)}%` };
+  };
+
+  const getBlockPosition = (block: StudyBlock) => {
+    const startHour = block.startTime.getHours() + block.startTime.getMinutes() / 60;
+    const endHour = block.endTime.getHours() + block.endTime.getMinutes() / 60;
     
     const top = ((startHour - 6) / 17) * 100;
     const height = ((endHour - startHour) / 17) * 100;
@@ -133,54 +153,113 @@ export const WeekView = ({ currentDate, events, subjects, onEventClick, onDayCli
         </div>
 
         {/* Day columns */}
-        {weekDays.map(day => {
-          const dayEvents = getEventsForDay(day);
-          
-          return (
-            <div
-              key={day.toISOString()}
-              className={cn(
-                "relative border-r last:border-r-0",
-                isSameDay(day, today) && "bg-primary/5"
-              )}
-            >
-              {/* Hour lines */}
-              {HOURS.map(hour => (
-                <div
-                  key={hour}
-                  className="absolute left-0 right-0 border-t border-border/30"
-                  style={{ top: `${((hour - 6) / 17) * 100}%` }}
-                />
-              ))}
-
-              {/* Events */}
-              {dayEvents.map(event => {
-                const position = getEventPosition(event);
-                return (
+        <TooltipProvider>
+          {weekDays.map(day => {
+            const dayEvents = getEventsForDay(day);
+            const dayBlocks = getEventsAndBlocksForDay(day);
+            
+            return (
+              <div
+                key={day.toISOString()}
+                className={cn(
+                  "relative border-r last:border-r-0",
+                  isSameDay(day, today) && "bg-primary/5"
+                )}
+              >
+                {/* Hour lines */}
+                {HOURS.map(hour => (
                   <div
-                    key={event.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!event.id.startsWith('class-')) onEventClick(event);
-                    }}
-                    className={cn(
-                      "absolute left-0.5 right-0.5 p-1 rounded text-xs border-l-2 overflow-hidden",
-                      "cursor-pointer hover:opacity-80 transition-opacity",
-                      getEventColor(event.event_type),
-                      event.id.startsWith('class-') && "cursor-default hover:opacity-100"
-                    )}
-                    style={position}
-                  >
-                    <div className="font-medium truncate">{event.title}</div>
-                    <div className="opacity-75 truncate">
-                      {format(parseISO(event.start_datetime), 'HH:mm')}
+                    key={hour}
+                    className="absolute left-0 right-0 border-t border-border/30"
+                    style={{ top: `${((hour - 6) / 17) * 100}%` }}
+                  />
+                ))}
+
+                {/* Events */}
+                {dayEvents.map(event => {
+                  const position = getEventPosition(event);
+                  return (
+                    <div
+                      key={event.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!event.id.startsWith('class-')) onEventClick(event);
+                      }}
+                      className={cn(
+                        "absolute left-0.5 right-0.5 p-1 rounded text-xs border-l-2 overflow-hidden",
+                        "cursor-pointer hover:opacity-80 transition-opacity",
+                        getEventColor(event.event_type),
+                        event.id.startsWith('class-') && "cursor-default hover:opacity-100"
+                      )}
+                      style={position}
+                    >
+                      <div className="font-medium truncate">{event.title}</div>
+                      <div className="opacity-75 truncate">
+                        {format(parseISO(event.start_datetime), 'HH:mm')}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })}
+                  );
+                })}
+
+                {/* Study Blocks (Suggested) */}
+                {dayBlocks.map(block => {
+                  const position = getBlockPosition(block);
+                  return (
+                    <Tooltip key={block.id}>
+                      <TooltipTrigger asChild>
+                        <div
+                          className={cn(
+                            "absolute left-0.5 right-0.5 p-1 rounded text-xs overflow-hidden",
+                            "border-dashed border animate-pulse",
+                            block.isBreak 
+                              ? "bg-muted/40 border-muted-foreground/30 text-muted-foreground"
+                              : "bg-accent/30 border-accent text-accent-foreground"
+                          )}
+                          style={position}
+                        >
+                          <div className="flex items-center gap-1">
+                            {block.isBreak ? (
+                              <Coffee className="w-2.5 h-2.5 shrink-0" />
+                            ) : (
+                              <Brain className="w-2.5 h-2.5 shrink-0" />
+                            )}
+                            <span className="font-medium truncate text-[10px]">
+                              {block.isBreak ? 'Pausa' : block.subject.name}
+                            </span>
+                          </div>
+                          {!block.isBreak && onDelayStudy && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDelayStudy(block.subject.id);
+                              }}
+                              className="absolute top-0.5 right-0.5 h-4 w-4 p-0 opacity-60 hover:opacity-100"
+                            >
+                              <XCircle className="w-2.5 h-2.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="font-medium">{block.isBreak ? 'Pausa sugerida' : `Estudar: ${block.subject.name}`}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {format(block.startTime, 'HH:mm')} - {format(block.endTime, 'HH:mm')}
+                        </p>
+                        {!block.isBreak && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Clique no X para "Não consegui"
+                          </p>
+                        )}
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </TooltipProvider>
       </div>
     </div>
   );

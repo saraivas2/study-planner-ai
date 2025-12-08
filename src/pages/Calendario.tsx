@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 import { useSubjects } from '@/hooks/useSubjects';
 import { useCalendarEvents, CalendarEvent, CreateEventData } from '@/hooks/useCalendarEvents';
+import { useStudySuggestions, StudyBlock } from '@/hooks/useStudySuggestions';
 import MainLayout from '@/components/layout/MainLayout';
 import { CalendarHeader, CalendarView } from '@/components/calendar/CalendarHeader';
 import { DayView } from '@/components/calendar/DayView';
@@ -19,7 +20,8 @@ const Calendario = () => {
   const { user, loading: authLoading } = useAuth();
   const { profile } = useProfile();
   const { subjects, loading: subjectsLoading } = useSubjects();
-  const { events, loading: eventsLoading, createEvent, updateEvent, deleteEvent } = useCalendarEvents();
+  const { events, loading: eventsLoading, createEvent, updateEvent, deleteEvent, getDeadlines, getFreeStudySlots } = useCalendarEvents();
+  const { delays, fetchDelays, generateSuggestions, markAsDelayed } = useStudySuggestions();
   const navigate = useNavigate();
 
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -34,6 +36,24 @@ const Calendario = () => {
       navigate('/auth');
     }
   }, [user, authLoading, navigate]);
+
+  // Fetch delays when user is authenticated
+  useEffect(() => {
+    if (user) {
+      fetchDelays();
+    }
+  }, [user, fetchDelays]);
+
+  // Generate study suggestions
+  const studySuggestions = generateSuggestions(
+    subjects,
+    getFreeStudySlots(),
+    getDeadlines(),
+    delays
+  );
+
+  // Flatten study blocks for calendar display
+  const studyBlocks: StudyBlock[] = studySuggestions.flatMap(s => s.blocks);
 
   if (authLoading || subjectsLoading || eventsLoading) {
     return (
@@ -114,7 +134,9 @@ const Calendario = () => {
               currentDate={currentDate}
               events={events}
               subjects={subjects}
+              studyBlocks={studyBlocks}
               onEventClick={handleEventClick}
+              onDelayStudy={markAsDelayed}
             />
           )}
           {view === 'week' && (
@@ -122,8 +144,10 @@ const Calendario = () => {
               currentDate={currentDate}
               events={events}
               subjects={subjects}
+              studyBlocks={studyBlocks}
               onEventClick={handleEventClick}
               onDayClick={handleDayClick}
+              onDelayStudy={markAsDelayed}
             />
           )}
           {view === 'month' && (
@@ -131,6 +155,7 @@ const Calendario = () => {
               currentDate={currentDate}
               events={events}
               subjects={subjects}
+              studyBlocks={studyBlocks}
               onEventClick={handleEventClick}
               onDayClick={handleDayClick}
             />
