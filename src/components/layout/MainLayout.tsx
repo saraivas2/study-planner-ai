@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Calendar, BookOpen, User, Bell, LogOut } from 'lucide-react';
+import { Calendar, BookOpen, User, Bell, LogOut, Sparkles } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -12,6 +12,7 @@ interface MainLayoutProps {
 const navItems = [
   { path: '/calendario', icon: Calendar, label: 'Calendário' },
   { path: '/materias', icon: BookOpen, label: 'Matérias' },
+  { path: '/sugestoes', icon: Sparkles, label: 'Sugestões' },
   { path: '/perfil', icon: User, label: 'Perfil' },
   { path: '/notificacoes', icon: Bell, label: 'Notificações' },
 ];

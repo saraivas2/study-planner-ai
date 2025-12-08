@@ -9,6 +9,7 @@ import Auth from "./pages/Auth";
 import Profile from "./pages/Profile";
 import Materias from "./pages/Materias";
 import Calendario from "./pages/Calendario";
+import Sugestoes from "./pages/Sugestoes";
 import Notificacoes from "./pages/Notificacoes";
 import NotFound from "./pages/NotFound";
 
@@ -27,6 +28,7 @@ const App = () => (
             <Route path="/perfil" element={<Profile />} />
             <Route path="/materias" element={<Materias />} />
             <Route path="/calendario" element={<Calendario />} />
+            <Route path="/sugestoes" element={<Sugestoes />} />
             <Route path="/notificacoes" element={<Notificacoes />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
