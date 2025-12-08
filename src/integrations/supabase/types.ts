@@ -148,6 +148,41 @@ export type Database = {
         }
         Relationships: []
       }
+      study_delays: {
+        Row: {
+          created_at: string
+          delayed_at: string
+          expires_at: string
+          id: string
+          subject_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          delayed_at?: string
+          expires_at?: string
+          id?: string
+          subject_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          delayed_at?: string
+          expires_at?: string
+          id?: string
+          subject_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "study_delays_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subject_schedules: {
         Row: {
           created_at: string
