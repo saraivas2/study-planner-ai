@@ -29,7 +29,7 @@ serve(async (req) => {
       );
     }
 
-    const systemPrompt = `Você é um assistente especializado em extrair dados de Atestados de Matrícula universitários brasileiros.
+    const systemPrompt = `Você é um assistente especializado em extrair dados de Atestados de Matrícula universitários brasileiros (SIGAA).
 Analise a imagem/documento e extraia TODOS os dados possíveis no seguinte formato JSON:
 
 {
@@ -49,6 +49,8 @@ Analise a imagem/documento e extraia TODOS os dados possíveis no seguinte forma
       "professor": "Nome do professor/docente",
       "type": "MÓDULO ou tipo da disciplina",
       "class_group": "Turma",
+      "status": "Status da matrícula (MATRICULADO, INDEFERIDO, CANCELADO, etc.)",
+      "sigaa_schedule": "Código de horário SIGAA original (ex: 3N34 5N12)",
       "schedules": [
         {
           "day_of_week": 0-6 (0=Domingo, 1=Segunda, ..., 6=Sábado),
@@ -61,8 +63,39 @@ Analise a imagem/documento e extraia TODOS os dados possíveis no seguinte forma
   ]
 }
 
+CODIFICAÇÃO DE HORÁRIOS SIGAA:
+Use esta tabela para decodificar os horários no formato SIGAA (ex: "3N34", "5M12"):
+
+1ª PARTE - Dia da Semana:
+2 = Segunda-feira (day_of_week: 1)
+3 = Terça-feira (day_of_week: 2)
+4 = Quarta-feira (day_of_week: 3)
+5 = Quinta-feira (day_of_week: 4)
+6 = Sexta-feira (day_of_week: 5)
+7 = Sábado (day_of_week: 6)
+
+2ª PARTE - Turno:
+M = Manhã
+T = Tarde
+N = Noite
+
+3ª PARTE - Blocos de Horário:
+MANHÃ (M):
+1 = 07:00-08:00, 2 = 08:00-09:00, 3 = 09:00-10:00, 4 = 10:00-11:00, 5 = 11:00-12:00, 6 = 12:00-13:00
+
+TARDE (T):
+1 = 13:00-14:00, 2 = 14:00-15:00, 3 = 15:00-16:00, 4 = 16:00-17:00, 5 = 17:00-18:00, 6 = 18:00-19:00
+
+NOITE (N):
+1 = 18:30-19:20, 2 = 19:20-20:10, 3 = 20:10-21:00, 4 = 21:00-21:50
+
+EXEMPLO: "3N34" significa Terça-feira (3), Noite (N), blocos 3 e 4 (20:10-21:50)
+Isso gera 2 schedules: {day_of_week: 2, start_time: "20:10", end_time: "21:00"} e {day_of_week: 2, start_time: "21:00", end_time: "21:50"}
+Ou pode unir em um bloco contínuo: {day_of_week: 2, start_time: "20:10", end_time: "21:50"}
+
 IMPORTANTE:
-- Extraia TODOS os dados visíveis no documento
+- FILTRO DE STATUS: Extraia APENAS matérias com status "MATRICULADO". DESCARTE matérias com status "INDEFERIDO", "CANCELADO" ou qualquer outro status diferente de "MATRICULADO".
+- Decodifique o código SIGAA para gerar os schedules com horários reais
 - Se um campo não estiver visível, use null
 - Para horários, converta para o formato 24h (HH:MM)
 - Para datas, use formato ISO (YYYY-MM-DD)
