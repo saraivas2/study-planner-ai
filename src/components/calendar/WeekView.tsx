@@ -18,7 +18,7 @@ interface WeekViewProps {
   onDelayStudy?: (subjectId: string) => Promise<boolean>;
 }
 
-const HOURS = Array.from({ length: 17 }, (_, i) => i + 6);
+const HOURS = Array.from({ length: 24 }, (_, i) => i); // 00:00 to 23:00 (24h view)
 
 const getEventColor = (eventType: string) => {
   switch (eventType) {
@@ -92,20 +92,22 @@ export const WeekView = ({ currentDate, events, subjects, studyBlocks = [], onEv
     const startHour = startTime.getHours() + startTime.getMinutes() / 60;
     const endHour = endTime.getHours() + endTime.getMinutes() / 60;
     
-    const top = ((startHour - 6) / 17) * 100;
-    const height = ((endHour - startHour) / 17) * 100;
+    // 24h view: divide by 24 hours
+    const top = (startHour / 24) * 100;
+    const height = ((endHour - startHour) / 24) * 100;
     
-    return { top: `${top}%`, height: `${Math.max(height, 4)}%` };
+    return { top: `${top}%`, height: `${Math.max(height, 2)}%` };
   };
 
   const getBlockPosition = (block: StudyBlock) => {
     const startHour = block.startTime.getHours() + block.startTime.getMinutes() / 60;
     const endHour = block.endTime.getHours() + block.endTime.getMinutes() / 60;
     
-    const top = ((startHour - 6) / 17) * 100;
-    const height = ((endHour - startHour) / 17) * 100;
+    // 24h view: divide by 24 hours
+    const top = (startHour / 24) * 100;
+    const height = ((endHour - startHour) / 24) * 100;
     
-    return { top: `${top}%`, height: `${Math.max(height, 4)}%` };
+    return { top: `${top}%`, height: `${Math.max(height, 2)}%` };
   };
 
   return (
@@ -135,15 +137,15 @@ export const WeekView = ({ currentDate, events, subjects, studyBlocks = [], onEv
         ))}
       </div>
 
-      {/* Time grid */}
-      <div className="flex-1 relative grid grid-cols-8" style={{ minHeight: '600px' }}>
+      {/* Time grid - 24h view */}
+      <div className="flex-1 relative grid grid-cols-8 overflow-y-auto" style={{ minHeight: '800px' }}>
         {/* Time column */}
         <div className="border-r relative">
           {HOURS.map(hour => (
             <div
               key={hour}
               className="absolute left-0 right-0 border-t border-border/50"
-              style={{ top: `${((hour - 6) / 17) * 100}%` }}
+              style={{ top: `${(hour / 24) * 100}%` }}
             >
               <span className="absolute -top-2.5 left-2 text-xs text-muted-foreground bg-card px-1">
                 {format(new Date().setHours(hour, 0), 'HH:mm')}
@@ -171,7 +173,7 @@ export const WeekView = ({ currentDate, events, subjects, studyBlocks = [], onEv
                   <div
                     key={hour}
                     className="absolute left-0 right-0 border-t border-border/30"
-                    style={{ top: `${((hour - 6) / 17) * 100}%` }}
+                    style={{ top: `${(hour / 24) * 100}%` }}
                   />
                 ))}
 
