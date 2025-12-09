@@ -6,6 +6,7 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -13,94 +14,125 @@ serve(async (req) => {
   try {
     const { fileBase64, mimeType } = await req.json();
     
+    // Validação de entrada mais robusta
     if (!fileBase64) {
+      console.error('No file provided in request');
       return new Response(
-        JSON.stringify({ error: 'No file provided' }),
+        JSON.stringify({ error: 'Nenhum arquivo fornecido' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!mimeType) {
+      console.error('No mimeType provided in request');
+      return new Response(
+        JSON.stringify({ error: 'Tipo de arquivo não especificado' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Validar mimeType
+    const validMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!validMimeTypes.includes(mimeType)) {
+      console.error('Invalid mimeType:', mimeType);
+      return new Response(
+        JSON.stringify({ error: 'Tipo de arquivo não suportado. Use JPEG, PNG, WEBP ou PDF.' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
-      console.error('LOVABLE_API_KEY not configured');
+      console.error('LOVABLE_API_KEY not configured in environment');
       return new Response(
-        JSON.stringify({ error: 'AI service not configured' }),
+        JSON.stringify({ error: 'Serviço de IA não configurado' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     const systemPrompt = `Você é um assistente especializado em extrair dados de Atestados de Matrícula universitários brasileiros (SIGAA).
-Analise a imagem/documento e extraia TODOS os dados possíveis no seguinte formato JSON:
+Analise a imagem/documento e extraia TODOS os dados possíveis no seguinte formato JSON.
 
+**CRÍTICO**: Extraia APENAS disciplinas com status "MATRICULADO". Ignore completamente disciplinas com status "INDEFERIDO", "CANCELADO", "TRANCADO" ou qualquer outro status.
+
+Formato JSON obrigatório:
 {
   "profile": {
     "full_name": "Nome completo do estudante",
-    "institution": "Nome da instituição de ensino",
-    "enrollment_number": "Número da matrícula",
+    "institution": "Nome da instituição",
+    "enrollment_number": "Matrícula",
     "course": "Nome do curso",
-    "semester": número do semestre atual (integer),
-    "period_start": "YYYY-MM-DD" (data de início do período letivo),
-    "period_end": "YYYY-MM-DD" (data de fim do período letivo)
+    "semester": número_inteiro,
+    "period_start": "YYYY-MM-DD",
+    "period_end": "YYYY-MM-DD"
   },
   "subjects": [
     {
-      "code": "Código da matéria",
-      "name": "Nome da matéria",
-      "professor": "Nome do professor/docente",
-      "type": "MÓDULO ou tipo da disciplina",
+      "code": "Código",
+      "name": "Nome da disciplina",
+      "professor": "Nome do professor",
+      "type": "Tipo/Módulo",
       "class_group": "Turma",
-      "status": "Status da matrícula (MATRICULADO, INDEFERIDO, CANCELADO, etc.)",
-      "sigaa_schedule": "Código de horário SIGAA original (ex: 3N34 5N12)",
+      "status": "MATRICULADO",
+      "sigaa_schedule": "Código SIGAA (ex: 3N34)",
       "schedules": [
         {
-          "day_of_week": 0-6 (0=Domingo, 1=Segunda, ..., 6=Sábado),
+          "day_of_week": 1,
           "start_time": "HH:MM",
           "end_time": "HH:MM",
-          "location": "Sala/Local"
+          "location": "Local"
         }
       ]
     }
   ]
 }
 
-CODIFICAÇÃO DE HORÁRIOS SIGAA:
-Use esta tabela para decodificar os horários no formato SIGAA (ex: "3N34", "5M12"):
+**DECODIFICAÇÃO DE HORÁRIOS SIGAA:**
 
-1ª PARTE - Dia da Semana:
-2 = Segunda-feira (day_of_week: 1)
-3 = Terça-feira (day_of_week: 2)
-4 = Quarta-feira (day_of_week: 3)
-5 = Quinta-feira (day_of_week: 4)
-6 = Sexta-feira (day_of_week: 5)
-7 = Sábado (day_of_week: 6)
+Dia da Semana (primeiro dígito):
+2=Segunda(1), 3=Terça(2), 4=Quarta(3), 5=Quinta(4), 6=Sexta(5), 7=Sábado(6)
 
-2ª PARTE - Turno:
-M = Manhã
-T = Tarde
-N = Noite
+Turno (letra):
+M=Manhã, T=Tarde, N=Noite
 
-3ª PARTE - Blocos de Horário:
+Horários por bloco (IMPORTANTE: cada número representa um bloco de 1 hora):
 MANHÃ (M):
-1 = 07:00-08:00, 2 = 08:00-09:00, 3 = 09:00-10:00, 4 = 10:00-11:00, 5 = 11:00-12:00, 6 = 12:00-13:00
+  Bloco 1 = 07:00-08:00
+  Bloco 2 = 08:00-09:00
+  Bloco 3 = 09:00-10:00
+  Bloco 4 = 10:00-11:00
+  Bloco 5 = 11:00-12:00
+  Bloco 6 = 12:00-13:00
 
 TARDE (T):
-1 = 13:00-14:00, 2 = 14:00-15:00, 3 = 15:00-16:00, 4 = 16:00-17:00, 5 = 17:00-18:00, 6 = 18:00-19:00
+  Bloco 1 = 13:00-14:00
+  Bloco 2 = 14:00-15:00
+  Bloco 3 = 15:00-16:00
+  Bloco 4 = 16:00-17:00
+  Bloco 5 = 17:00-18:00
+  Bloco 6 = 18:00-19:00
 
 NOITE (N):
-1 = 18:30-19:20, 2 = 19:20-20:10, 3 = 20:10-21:00, 4 = 21:00-21:50
+  Bloco 1 = 18:30-19:20
+  Bloco 2 = 19:20-20:10
+  Bloco 3 = 20:10-21:00
+  Bloco 4 = 21:00-21:50
 
-EXEMPLO: "3N34" significa Terça-feira (3), Noite (N), blocos 3 e 4 (20:10-21:50)
-Isso gera 2 schedules: {day_of_week: 2, start_time: "20:10", end_time: "21:00"} e {day_of_week: 2, start_time: "21:00", end_time: "21:50"}
-Ou pode unir em um bloco contínuo: {day_of_week: 2, start_time: "20:10", end_time: "21:50"}
+EXEMPLOS DE DECODIFICAÇÃO:
+- "2T23" = Segunda-feira, Tarde, blocos 2 e 3 = {day_of_week:1, start_time:"14:00", end_time:"16:00"}
+- "3N34" = Terça-feira, Noite, blocos 3 e 4 = {day_of_week:2, start_time:"20:10", end_time:"21:50"}
+- "5M12" = Quinta-feira, Manhã, blocos 1 e 2 = {day_of_week:4, start_time:"07:00", end_time:"09:00"}
+- "4T45" = Quarta-feira, Tarde, blocos 4 e 5 = {day_of_week:3, start_time:"16:00", end_time:"18:00"}
 
-IMPORTANTE:
-- FILTRO DE STATUS: Extraia APENAS matérias com status "MATRICULADO". DESCARTE matérias com status "INDEFERIDO", "CANCELADO" ou qualquer outro status diferente de "MATRICULADO".
-- Decodifique o código SIGAA para gerar os schedules com horários reais
-- Se um campo não estiver visível, use null
-- Para horários, converta para o formato 24h (HH:MM)
-- Para datas, use formato ISO (YYYY-MM-DD)
-- Retorne APENAS o JSON válido, sem texto adicional`;
+REGRA: Pegue o horário de INÍCIO do primeiro bloco e o horário de FIM do último bloco.
 
+**IMPORTANTE:**
+- Retorne APENAS JSON válido, sem markdown, sem texto extra
+- Use null para campos não encontrados
+- Filtre rigorosamente pelo status "MATRICULADO"`;
+
+    console.log('Sending request to AI gateway...');
+    
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -116,7 +148,7 @@ IMPORTANTE:
             content: [
               {
                 type: 'text',
-                text: 'Extraia todos os dados deste atestado de matrícula e retorne no formato JSON especificado.'
+                text: 'Extraia todos os dados deste atestado de matrícula seguindo rigorosamente o formato JSON especificado. Lembre-se: APENAS disciplinas com status MATRICULADO.'
               },
               {
                 type: 'image_url',
@@ -127,13 +159,19 @@ IMPORTANTE:
             ]
           }
         ],
+        temperature: 0.1,
       }),
     });
 
+    console.log('AI gateway response status:', response.status);
+
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error('AI gateway error:', response.status, errorText);
+      
       if (response.status === 429) {
         return new Response(
-          JSON.stringify({ error: 'Limite de requisições excedido. Tente novamente em alguns minutos.' }),
+          JSON.stringify({ error: 'Limite de requisições excedido. Aguarde alguns minutos.' }),
           { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -143,10 +181,11 @@ IMPORTANTE:
           { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      const errorText = await response.text();
-      console.error('AI gateway error:', response.status, errorText);
       return new Response(
-        JSON.stringify({ error: 'Erro ao processar documento com IA' }),
+        JSON.stringify({ 
+          error: 'Erro ao processar documento com IA',
+          details: errorText.substring(0, 200)
+        }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -155,39 +194,83 @@ IMPORTANTE:
     const content = aiResponse.choices?.[0]?.message?.content;
 
     if (!content) {
-      console.error('No content in AI response:', aiResponse);
+      console.error('No content in AI response:', JSON.stringify(aiResponse));
       return new Response(
-        JSON.stringify({ error: 'IA não retornou dados' }),
+        JSON.stringify({ error: 'IA não retornou dados válidos' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Parse the JSON from the response
+    console.log('Raw AI response content:', content.substring(0, 500));
+
+    // Parse JSON mais robusto
     let extractedData;
     try {
-      // Try to extract JSON from the response (it might have markdown code blocks)
-      const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/```\s*([\s\S]*?)\s*```/);
-      const jsonStr = jsonMatch ? jsonMatch[1] : content;
-      extractedData = JSON.parse(jsonStr.trim());
+      // Remove markdown code blocks se existirem
+      let cleanContent = content.trim();
+      
+      // Tenta extrair JSON de blocos markdown
+      const jsonBlockMatch = cleanContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (jsonBlockMatch) {
+        cleanContent = jsonBlockMatch[1].trim();
+      }
+      
+      // Remove possível texto antes/depois do JSON
+      const jsonObjectMatch = cleanContent.match(/\{[\s\S]*\}/);
+      if (jsonObjectMatch) {
+        cleanContent = jsonObjectMatch[0];
+      }
+      
+      extractedData = JSON.parse(cleanContent);
+      
+      // Validação básica da estrutura
+      if (!extractedData.profile || !extractedData.subjects) {
+        throw new Error('Estrutura JSON inválida: faltam campos obrigatórios');
+      }
+
+      // Filtrar novamente por status no backend (garantia adicional)
+      if (Array.isArray(extractedData.subjects)) {
+        extractedData.subjects = extractedData.subjects.filter(
+          (subject: any) => subject.status === 'MATRICULADO'
+        );
+        console.log(`Filtered subjects: ${extractedData.subjects.length} with MATRICULADO status`);
+      }
+
     } catch (parseError) {
-      console.error('Failed to parse AI response as JSON:', content, parseError);
+      console.error('Failed to parse AI response:', parseError);
+      console.error('Content that failed to parse:', content);
       return new Response(
-        JSON.stringify({ error: 'Falha ao interpretar dados extraídos', rawContent: content }),
+        JSON.stringify({ 
+          error: 'Falha ao interpretar resposta da IA',
+          details: parseError instanceof Error ? parseError.message : 'Erro desconhecido',
+          rawContent: content.substring(0, 500)
+        }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('Successfully extracted data:', JSON.stringify(extractedData));
+    console.log('Successfully extracted and validated data');
+    console.log('Profile:', JSON.stringify(extractedData.profile));
+    console.log('Subjects count:', extractedData.subjects?.length || 0);
 
     return new Response(
-      JSON.stringify({ success: true, data: extractedData }),
+      JSON.stringify({ 
+        success: true, 
+        data: extractedData,
+        timestamp: new Date().toISOString()
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
-    console.error('Error in extract-enrollment function:', error);
+    console.error('Unhandled error in extract-enrollment function:', error);
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+    
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Erro desconhecido' }),
+      JSON.stringify({ 
+        error: 'Erro interno do servidor',
+        message: error instanceof Error ? error.message : 'Erro desconhecido'
+      }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
