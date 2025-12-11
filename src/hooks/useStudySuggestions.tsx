@@ -10,6 +10,10 @@ const STUDY_BLOCK_MINUTES = 50;
 const BREAK_MINUTES = 10;
 const DELAY_BONUS = 2.0;
 
+// Thresholds for subject repetition in study slots
+const REPEAT_ONCE_THRESHOLD = 12;
+const REPEAT_TRIPLE_THRESHOLD = 15;
+
 export interface StudyDelay {
   id: string;
   user_id: string;
@@ -41,6 +45,7 @@ export interface StudyBlock {
 export interface StudySuggestion {
   freeSlot: CalendarEvent;
   blocks: StudyBlock[];
+  assignedSubject?: Subject; // Subject assigned to this slot
 }
 
 export const useStudySuggestions = () => {
@@ -67,8 +72,11 @@ export const useStudySuggestions = () => {
   }, [user]);
 
   // Calculate urgency factor based on deadline proximity
+  // Enhanced: Higher urgency for last days before deadline
   const calculateUrgencyFactor = (daysUntilDeadline: number): number => {
-    if (daysUntilDeadline < 0) return 1.5; // Past deadline - highest urgency
+    if (daysUntilDeadline < 0) return 2.0; // Past deadline - highest urgency
+    if (daysUntilDeadline <= 1) return 1.5; // Last day - very high
+    if (daysUntilDeadline <= 2) return 1.2; // Penultimate day - high
     if (daysUntilDeadline < 4) return 1.0;
     if (daysUntilDeadline <= 7) return 0.5;
     return 0.0;
@@ -82,8 +90,13 @@ export const useStudySuggestions = () => {
   ): SubjectPriority[] => {
     const now = new Date();
 
+    // Filter only active (non-finished) subjects with weights
     return subjects
-      .filter(subject => subject.difficulty_weight && subject.dedication_weight)
+      .filter(subject => 
+        subject.difficulty_weight && 
+        subject.dedication_weight &&
+        subject.status !== 'finalizada'
+      )
       .map(subject => {
         const D = subject.difficulty_weight || 3;
         const B = subject.dedication_weight || 3;
@@ -128,32 +141,82 @@ export const useStudySuggestions = () => {
       .sort((a, b) => b.score - a.score);
   }, []);
 
-  // Generate study blocks for a free slot
-  const generateStudyBlocks = useCallback((
+  /**
+   * Distribute subjects across free study slots following these rules:
+   * 1. All subjects should appear at least once if there are enough slots
+   * 2. If slots < subjects: show top priority subjects
+   * 3. If slots > subjects: distribute all, then give extra to highest priority
+   * 4. Subject with score > 12: repeats once extra
+   * 5. Subject with score > 15: repeats 3 times extra
+   */
+  const distributeSubjectsToSlots = useCallback((
+    priorities: SubjectPriority[],
+    numSlots: number
+  ): SubjectPriority[] => {
+    if (priorities.length === 0 || numSlots === 0) return [];
+
+    const distribution: SubjectPriority[] = [];
+    
+    // Calculate how many slots each subject should get based on score
+    const getExtraSlots = (score: number): number => {
+      if (score >= REPEAT_TRIPLE_THRESHOLD) return 3;
+      if (score >= REPEAT_ONCE_THRESHOLD) return 1;
+      return 0;
+    };
+
+    // Build initial allocation with extras for high-score subjects
+    let allocation: SubjectPriority[] = [];
+    
+    for (const priority of priorities) {
+      // Base slot (everyone gets at least 1)
+      allocation.push(priority);
+      
+      // Extra slots based on score thresholds
+      const extras = getExtraSlots(priority.score);
+      for (let i = 0; i < extras; i++) {
+        allocation.push(priority);
+      }
+    }
+
+    // If we have more slots than allocated, cycle through priorities
+    if (numSlots > allocation.length) {
+      let idx = 0;
+      while (allocation.length < numSlots) {
+        allocation.push(priorities[idx % priorities.length]);
+        idx++;
+      }
+    }
+
+    // If we have fewer slots than allocated, take top priorities
+    if (numSlots < allocation.length) {
+      // Sort by score to prioritize high-scoring subjects
+      allocation.sort((a, b) => b.score - a.score);
+      allocation = allocation.slice(0, numSlots);
+    }
+
+    return allocation;
+  }, []);
+
+  // Generate study blocks for a single free slot with a specific subject
+  const generateStudyBlocksForSubject = useCallback((
     freeSlot: CalendarEvent,
-    prioritizedSubjects: SubjectPriority[]
+    priority: SubjectPriority
   ): StudyBlock[] => {
-    if (!freeSlot.end_datetime || prioritizedSubjects.length === 0) return [];
+    if (!freeSlot.end_datetime) return [];
 
     const slotStart = parseISO(freeSlot.start_datetime);
     const slotEnd = parseISO(freeSlot.end_datetime);
-    const totalMinutes = Math.floor((slotEnd.getTime() - slotStart.getTime()) / 60000);
-
+    
     const blocks: StudyBlock[] = [];
     let currentTime = slotStart;
-    let subjectIndex = 0;
 
     while (true) {
       const remainingMinutes = Math.floor((slotEnd.getTime() - currentTime.getTime()) / 60000);
       
-      // Check if we have at least 20 minutes for a meaningful study block
       if (remainingMinutes < 20) break;
 
       const studyMinutes = Math.min(STUDY_BLOCK_MINUTES, remainingMinutes);
       const studyEnd = addMinutes(currentTime, studyMinutes);
-
-      // Get next subject (cycle through if needed)
-      const priority = prioritizedSubjects[subjectIndex % prioritizedSubjects.length];
 
       blocks.push({
         id: `${freeSlot.id}-block-${blocks.length}`,
@@ -170,7 +233,6 @@ export const useStudySuggestions = () => {
       const afterBreakRemaining = Math.floor((slotEnd.getTime() - addMinutes(currentTime, BREAK_MINUTES).getTime()) / 60000);
       
       if (afterBreakRemaining >= 20) {
-        // Add break block
         const breakEnd = addMinutes(currentTime, BREAK_MINUTES);
         blocks.push({
           id: `${freeSlot.id}-break-${blocks.length}`,
@@ -181,9 +243,6 @@ export const useStudySuggestions = () => {
           freeSlotId: freeSlot.id
         });
         currentTime = breakEnd;
-        
-        // Move to next subject after break
-        subjectIndex++;
       } else {
         break;
       }
@@ -192,7 +251,7 @@ export const useStudySuggestions = () => {
     return blocks;
   }, []);
 
-  // Generate all study suggestions
+  // Generate all study suggestions with smart distribution
   const generateSuggestions = useCallback((
     subjects: Subject[],
     freeSlots: CalendarEvent[],
@@ -201,10 +260,11 @@ export const useStudySuggestions = () => {
   ): StudySuggestion[] => {
     const now = new Date();
     
-    // Filter future free slots only
-    const futureFreeSlots = freeSlots.filter(slot => 
-      isAfter(parseISO(slot.start_datetime), now)
-    );
+    // Filter future free slots only (excluding slots with manual subject assignment)
+    const futureFreeSlots = freeSlots
+      .filter(slot => isAfter(parseISO(slot.start_datetime), now))
+      .filter(slot => !slot.subject_id) // Only AI-assigned slots
+      .sort((a, b) => new Date(a.start_datetime).getTime() - new Date(b.start_datetime).getTime());
 
     if (futureFreeSlots.length === 0 || subjects.length === 0) return [];
 
@@ -212,11 +272,19 @@ export const useStudySuggestions = () => {
     
     if (priorities.length === 0) return [];
 
-    return futureFreeSlots.map(slot => ({
-      freeSlot: slot,
-      blocks: generateStudyBlocks(slot, priorities)
-    })).filter(s => s.blocks.length > 0);
-  }, [calculateSubjectPriorities, generateStudyBlocks]);
+    // Distribute subjects across slots
+    const distribution = distributeSubjectsToSlots(priorities, futureFreeSlots.length);
+
+    // Generate suggestions for each slot
+    return futureFreeSlots.map((slot, index) => {
+      const assignedPriority = distribution[index];
+      return {
+        freeSlot: slot,
+        blocks: assignedPriority ? generateStudyBlocksForSubject(slot, assignedPriority) : [],
+        assignedSubject: assignedPriority?.subject
+      };
+    }).filter(s => s.blocks.length > 0);
+  }, [calculateSubjectPriorities, distributeSubjectsToSlots, generateStudyBlocksForSubject]);
 
   // Mark a study as delayed
   const markAsDelayed = async (subjectId: string): Promise<boolean> => {
@@ -292,9 +360,12 @@ export const useStudySuggestions = () => {
     fetchDelays,
     calculateSubjectPriorities,
     generateSuggestions,
+    distributeSubjectsToSlots,
     markAsDelayed,
     clearDelay,
     STUDY_BLOCK_MINUTES,
-    BREAK_MINUTES
+    BREAK_MINUTES,
+    REPEAT_ONCE_THRESHOLD,
+    REPEAT_TRIPLE_THRESHOLD
   };
 };

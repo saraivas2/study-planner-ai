@@ -12,7 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { CalendarIcon, Loader2 } from 'lucide-react';
+import { CalendarIcon, Loader2, Sparkles, BookOpen, Trash2 } from 'lucide-react';
 import { CalendarEvent, CreateEventData, EventType } from '@/hooks/useCalendarEvents';
 import { Subject } from '@/hooks/useSubjects';
 
@@ -22,6 +22,7 @@ interface EventFormDialogProps {
   event?: CalendarEvent | null;
   subjects: Subject[];
   onSubmit: (data: CreateEventData) => Promise<boolean>;
+  onDelete?: (eventId: string) => Promise<boolean>;
   defaultDate?: Date;
 }
 
@@ -41,15 +42,19 @@ const WEEKDAYS = [
   { value: 6, label: 'Sáb' }
 ];
 
+type StudyMode = 'ai' | 'manual';
+
 export const EventFormDialog = ({
   open,
   onOpenChange,
   event,
   subjects,
   onSubmit,
+  onDelete,
   defaultDate
 }: EventFormDialogProps) => {
   const [loading, setLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [eventType, setEventType] = useState<EventType>('occupied');
@@ -60,6 +65,9 @@ export const EventFormDialog = ({
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurrenceDays, setRecurrenceDays] = useState<number[]>([]);
   const [recurrenceEndDate, setRecurrenceEndDate] = useState<Date | undefined>();
+  
+  // New: Study mode for free_study events
+  const [studyMode, setStudyMode] = useState<StudyMode>('ai');
 
   useEffect(() => {
     if (event) {
@@ -78,6 +86,8 @@ export const EventFormDialog = ({
       if (event.recurrence_end_date) {
         setRecurrenceEndDate(new Date(event.recurrence_end_date));
       }
+      // Set study mode based on whether subject is assigned
+      setStudyMode(event.subject_id ? 'manual' : 'ai');
     } else {
       setTitle('');
       setDescription('');
@@ -89,6 +99,7 @@ export const EventFormDialog = ({
       setIsRecurring(false);
       setRecurrenceDays([]);
       setRecurrenceEndDate(undefined);
+      setStudyMode('ai');
     }
   }, [event, defaultDate, open]);
 
@@ -107,11 +118,16 @@ export const EventFormDialog = ({
       const endDatetime = new Date(startDate);
       endDatetime.setHours(endHour, endMin, 0, 0);
 
+      // For free_study events, only set subject_id if manual mode
+      const effectiveSubjectId = eventType === 'free_study' 
+        ? (studyMode === 'manual' ? subjectId : undefined)
+        : (eventType === 'deadline' ? subjectId : undefined);
+
       const data: CreateEventData = {
         title,
         description: description || undefined,
         event_type: eventType,
-        subject_id: subjectId || undefined,
+        subject_id: effectiveSubjectId,
         start_datetime: startDatetime.toISOString(),
         end_datetime: endDatetime.toISOString(),
         is_recurring: isRecurring,
@@ -129,6 +145,20 @@ export const EventFormDialog = ({
     }
   };
 
+  const handleDelete = async () => {
+    if (!event || !onDelete) return;
+    
+    setDeleteLoading(true);
+    try {
+      const success = await onDelete(event.id);
+      if (success) {
+        onOpenChange(false);
+      }
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
   const toggleDay = (day: number) => {
     setRecurrenceDays(prev => 
       prev.includes(day) 
@@ -136,6 +166,9 @@ export const EventFormDialog = ({
         : [...prev, day]
     );
   };
+
+  // Filter only active subjects (not finished)
+  const activeSubjects = subjects.filter(s => s.status !== 'finalizada');
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -179,6 +212,61 @@ export const EventFormDialog = ({
             />
           </div>
 
+          {/* Free Study Mode Selection */}
+          {eventType === 'free_study' && (
+            <div className="space-y-3 p-4 bg-muted/50 rounded-lg border">
+              <Label className="text-sm font-medium">Como definir a matéria?</Label>
+              <RadioGroup
+                value={studyMode}
+                onValueChange={(v) => setStudyMode(v as StudyMode)}
+                className="space-y-2"
+              >
+                <div className="flex items-start space-x-3">
+                  <RadioGroupItem value="ai" id="study-ai" className="mt-1" />
+                  <div className="flex-1">
+                    <Label htmlFor="study-ai" className="font-medium cursor-pointer flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-primary" />
+                      Sugestão da IA
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      A IA escolherá a melhor matéria com base em prioridade, dificuldade e prazos
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start space-x-3">
+                  <RadioGroupItem value="manual" id="study-manual" className="mt-1" />
+                  <div className="flex-1">
+                    <Label htmlFor="study-manual" className="font-medium cursor-pointer flex items-center gap-2">
+                      <BookOpen className="h-4 w-4 text-primary" />
+                      Escolher matéria específica
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Você define qual matéria estudar neste horário
+                    </p>
+                  </div>
+                </div>
+              </RadioGroup>
+
+              {studyMode === 'manual' && (
+                <div className="space-y-2 pt-2">
+                  <Label htmlFor="study-subject">Matéria *</Label>
+                  <Select value={subjectId} onValueChange={setSubjectId} required>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione a matéria" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {activeSubjects.map(subject => (
+                        <SelectItem key={subject.id} value={subject.id}>
+                          {subject.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+          )}
+
           {eventType === 'deadline' && (
             <div className="space-y-2">
               <Label htmlFor="subject">Matéria Vinculada *</Label>
@@ -187,7 +275,7 @@ export const EventFormDialog = ({
                   <SelectValue placeholder="Selecione a matéria" />
                 </SelectTrigger>
                 <SelectContent>
-                  {subjects.map(subject => (
+                  {activeSubjects.map(subject => (
                     <SelectItem key={subject.id} value={subject.id}>
                       {subject.name}
                     </SelectItem>
@@ -325,14 +413,33 @@ export const EventFormDialog = ({
             </>
           )}
 
-          <div className="flex justify-end gap-2 pt-4">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={loading}>
-              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {event ? 'Salvar' : 'Criar'}
-            </Button>
+          <div className="flex justify-between pt-4">
+            {/* Delete button - only show when editing */}
+            {event && onDelete && (
+              <Button 
+                type="button" 
+                variant="destructive" 
+                onClick={handleDelete}
+                disabled={deleteLoading}
+              >
+                {deleteLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="mr-2 h-4 w-4" />
+                )}
+                Excluir
+              </Button>
+            )}
+            
+            <div className="flex gap-2 ml-auto">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={loading}>
+                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {event ? 'Salvar' : 'Criar'}
+              </Button>
+            </div>
           </div>
         </form>
       </DialogContent>

@@ -106,6 +106,15 @@ const Calendario = () => {
     }
   };
 
+  const handleDeleteEventFromDialog = async (eventId: string): Promise<boolean> => {
+    const success = await deleteEvent(eventId);
+    if (success) {
+      setShowEventDialog(false);
+      setSelectedEvent(null);
+    }
+    return success;
+  };
+
   const handleDeleteEvent = async () => {
     if (eventToDelete) {
       await deleteEvent(eventToDelete.id);
@@ -181,6 +190,7 @@ const Calendario = () => {
         event={selectedEvent}
         subjects={subjects}
         onSubmit={handleSubmitEvent}
+        onDelete={handleDeleteEventFromDialog}
         defaultDate={defaultDate}
       />
 
