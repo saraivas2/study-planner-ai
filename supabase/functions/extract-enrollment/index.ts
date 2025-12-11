@@ -5,8 +5,121 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// ============================================
+// PARSER DETERMINÍSTICO DE HORÁRIOS SIGAA
+// A IA NÃO calcula horários - apenas extrai o código
+// Este parser faz a conversão matemática exata
+// ============================================
+
+interface ParsedSchedule {
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+  location: string | null;
+}
+
+// Mapeamento SIGAA: dígito -> dia da semana
+const DAY_MAP: Record<string, number> = {
+  '2': 1, // Segunda-feira
+  '3': 2, // Terça-feira
+  '4': 3, // Quarta-feira
+  '5': 4, // Quinta-feira
+  '6': 5, // Sexta-feira
+  '7': 6, // Sábado
+};
+
+// Tabela de horários HARDCODED - NÃO MODIFICAR
+const SHIFT_BLOCKS: Record<string, Record<string, [string, string]>> = {
+  'M': { // Manhã
+    '1': ['07:00', '08:00'],
+    '2': ['08:00', '09:00'],
+    '3': ['09:00', '10:00'],
+    '4': ['10:00', '11:00'],
+    '5': ['11:00', '12:00'],
+    '6': ['12:00', '13:00'],
+  },
+  'T': { // Tarde
+    '1': ['13:00', '14:00'],
+    '2': ['14:00', '15:00'],
+    '3': ['15:00', '16:00'],
+    '4': ['16:00', '17:00'],
+    '5': ['17:00', '18:00'],
+    '6': ['18:00', '19:00'],
+  },
+  'N': { // Noite - horários quebrados
+    '1': ['18:30', '19:20'],
+    '2': ['19:20', '20:10'],
+    '3': ['20:10', '21:00'],
+    '4': ['21:00', '21:50'],
+  },
+};
+
+function parseSigaaSchedule(code: string): ParsedSchedule | null {
+  if (!code || typeof code !== 'string') return null;
+
+  const cleaned = code.trim().toUpperCase();
+  const match = cleaned.match(/^(\d)([MTN])(\d+)$/i);
+  
+  if (!match) {
+    console.warn(`[sigaaParser] Código inválido: "${code}"`);
+    return null;
+  }
+
+  const [, dayDigit, shift, blocksStr] = match;
+  const blocks = blocksStr.split('');
+
+  const dayOfWeek = DAY_MAP[dayDigit];
+  if (dayOfWeek === undefined) {
+    console.warn(`[sigaaParser] Dia inválido: "${dayDigit}"`);
+    return null;
+  }
+
+  const shiftBlocks = SHIFT_BLOCKS[shift.toUpperCase()];
+  if (!shiftBlocks) {
+    console.warn(`[sigaaParser] Turno inválido: "${shift}"`);
+    return null;
+  }
+
+  const validBlocks = blocks.filter(b => shiftBlocks[b]);
+  if (validBlocks.length === 0) {
+    console.warn(`[sigaaParser] Nenhum bloco válido em "${code}"`);
+    return null;
+  }
+
+  validBlocks.sort((a, b) => parseInt(a) - parseInt(b));
+
+  const firstBlock = validBlocks[0];
+  const lastBlock = validBlocks[validBlocks.length - 1];
+
+  console.log(`[sigaaParser] "${code}" -> dia=${dayOfWeek}, ${shiftBlocks[firstBlock][0]}-${shiftBlocks[lastBlock][1]}`);
+
+  return {
+    day_of_week: dayOfWeek,
+    start_time: shiftBlocks[firstBlock][0],
+    end_time: shiftBlocks[lastBlock][1],
+    location: null,
+  };
+}
+
+function parseMultipleSigaaCodes(codes: string): ParsedSchedule[] {
+  if (!codes || typeof codes !== 'string') return [];
+  
+  const codeList = codes.split(/[\s,;]+/).filter(Boolean);
+  const results: ParsedSchedule[] = [];
+  
+  for (const code of codeList) {
+    const parsed = parseSigaaSchedule(code);
+    if (parsed) results.push(parsed);
+  }
+  
+  return results;
+}
+
+// Status válidos para matrícula
+const VALID_STATUS = ['MATRICULADO'];
+const INVALID_STATUS = ['INDEFERIDO', 'CANCELADO', 'TRANCADO', 'DISPENSADO', 'EXCLUIDO', 'REJEITADO'];
+
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -14,7 +127,6 @@ serve(async (req) => {
   try {
     const { fileBase64, mimeType } = await req.json();
     
-    // Validação de entrada mais robusta
     if (!fileBase64) {
       console.error('No file provided in request');
       return new Response(
@@ -31,7 +143,6 @@ serve(async (req) => {
       );
     }
 
-    // Validar mimeType
     const validMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
     if (!validMimeTypes.includes(mimeType)) {
       console.error('Invalid mimeType:', mimeType);
@@ -50,86 +161,41 @@ serve(async (req) => {
       );
     }
 
+    // Prompt simplificado - IA só extrai texto, NÃO calcula horários
     const systemPrompt = `Você é um assistente especializado em extrair dados de Atestados de Matrícula universitários brasileiros (SIGAA).
-Analise a imagem/documento e extraia TODOS os dados possíveis no seguinte formato JSON.
 
-**CRÍTICO**: Extraia APENAS disciplinas com status "MATRICULADO". Ignore completamente disciplinas com status "INDEFERIDO", "CANCELADO", "TRANCADO" ou qualquer outro status.
+**IMPORTANTE**: NÃO calcule horários. Apenas extraia o código SIGAA bruto (ex: "3N34", "2T23").
 
 Formato JSON obrigatório:
 {
   "profile": {
-    "full_name": "Nome completo do estudante",
-    "institution": "Nome da instituição",
+    "full_name": "Nome completo",
+    "institution": "Instituição",
     "enrollment_number": "Matrícula",
-    "course": "Nome do curso",
-    "semester": número_inteiro,
+    "course": "Curso",
+    "semester": número,
     "period_start": "YYYY-MM-DD",
     "period_end": "YYYY-MM-DD"
   },
   "subjects": [
     {
-      "code": "Código",
-      "name": "Nome da disciplina",
-      "professor": "Nome do professor",
-      "type": "Tipo/Módulo",
+      "code": "Código da disciplina",
+      "name": "Nome",
+      "professor": "Professor",
+      "type": "Tipo",
       "class_group": "Turma",
-      "status": "MATRICULADO",
-      "sigaa_schedule": "Código SIGAA (ex: 3N34)",
-      "schedules": [
-        {
-          "day_of_week": 1,
-          "start_time": "HH:MM",
-          "end_time": "HH:MM",
-          "location": "Local"
-        }
-      ]
+      "status": "Status exato como aparece",
+      "sigaa_schedule": "Código SIGAA bruto (ex: 3N34 ou 2T23 5T23)",
+      "location": "Local/Sala"
     }
   ]
 }
 
-**DECODIFICAÇÃO DE HORÁRIOS SIGAA:**
-
-Dia da Semana (primeiro dígito):
-2=Segunda(1), 3=Terça(2), 4=Quarta(3), 5=Quinta(4), 6=Sexta(5), 7=Sábado(6)
-
-Turno (letra):
-M=Manhã, T=Tarde, N=Noite
-
-Horários por bloco (IMPORTANTE: cada número representa um bloco de 1 hora):
-MANHÃ (M):
-  Bloco 1 = 07:00-08:00
-  Bloco 2 = 08:00-09:00
-  Bloco 3 = 09:00-10:00
-  Bloco 4 = 10:00-11:00
-  Bloco 5 = 11:00-12:00
-  Bloco 6 = 12:00-13:00
-
-TARDE (T):
-  Bloco 1 = 13:00-14:00
-  Bloco 2 = 14:00-15:00
-  Bloco 3 = 15:00-16:00
-  Bloco 4 = 16:00-17:00
-  Bloco 5 = 17:00-18:00
-  Bloco 6 = 18:00-19:00
-
-NOITE (N):
-  Bloco 1 = 18:30-19:20
-  Bloco 2 = 19:20-20:10
-  Bloco 3 = 20:10-21:00
-  Bloco 4 = 21:00-21:50
-
-EXEMPLOS DE DECODIFICAÇÃO:
-- "2T23" = Segunda-feira, Tarde, blocos 2 e 3 = {day_of_week:1, start_time:"14:00", end_time:"16:00"}
-- "3N34" = Terça-feira, Noite, blocos 3 e 4 = {day_of_week:2, start_time:"20:10", end_time:"21:50"}
-- "5M12" = Quinta-feira, Manhã, blocos 1 e 2 = {day_of_week:4, start_time:"07:00", end_time:"09:00"}
-- "4T45" = Quarta-feira, Tarde, blocos 4 e 5 = {day_of_week:3, start_time:"16:00", end_time:"18:00"}
-
-REGRA: Pegue o horário de INÍCIO do primeiro bloco e o horário de FIM do último bloco.
-
-**IMPORTANTE:**
-- Retorne APENAS JSON válido, sem markdown, sem texto extra
-- Use null para campos não encontrados
-- Filtre rigorosamente pelo status "MATRICULADO"`;
+**REGRAS:**
+1. Extraia o status EXATAMENTE como aparece no documento
+2. Para sigaa_schedule, copie o código bruto (ex: "3N34", "2M12 4M12")
+3. NÃO tente converter horários - apenas extraia o código
+4. Retorne APENAS JSON válido, sem markdown`;
 
     console.log('Sending request to AI gateway...');
     
@@ -148,7 +214,7 @@ REGRA: Pegue o horário de INÍCIO do primeiro bloco e o horário de FIM do últ
             content: [
               {
                 type: 'text',
-                text: 'Extraia todos os dados deste atestado de matrícula seguindo rigorosamente o formato JSON especificado. Lembre-se: APENAS disciplinas com status MATRICULADO.'
+                text: 'Extraia os dados deste atestado de matrícula. Lembre-se: apenas extraia o código SIGAA bruto, não calcule horários.'
               },
               {
                 type: 'image_url',
@@ -182,10 +248,7 @@ REGRA: Pegue o horário de INÍCIO do primeiro bloco e o horário de FIM do últ
         );
       }
       return new Response(
-        JSON.stringify({ 
-          error: 'Erro ao processar documento com IA',
-          details: errorText.substring(0, 200)
-        }),
+        JSON.stringify({ error: 'Erro ao processar documento com IA', details: errorText.substring(0, 200) }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -203,19 +266,15 @@ REGRA: Pegue o horário de INÍCIO do primeiro bloco e o horário de FIM do últ
 
     console.log('Raw AI response content:', content.substring(0, 500));
 
-    // Parse JSON mais robusto
     let extractedData;
     try {
-      // Remove markdown code blocks se existirem
       let cleanContent = content.trim();
       
-      // Tenta extrair JSON de blocos markdown
       const jsonBlockMatch = cleanContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (jsonBlockMatch) {
         cleanContent = jsonBlockMatch[1].trim();
       }
       
-      // Remove possível texto antes/depois do JSON
       const jsonObjectMatch = cleanContent.match(/\{[\s\S]*\}/);
       if (jsonObjectMatch) {
         cleanContent = jsonObjectMatch[0];
@@ -223,17 +282,8 @@ REGRA: Pegue o horário de INÍCIO do primeiro bloco e o horário de FIM do últ
       
       extractedData = JSON.parse(cleanContent);
       
-      // Validação básica da estrutura
       if (!extractedData.profile || !extractedData.subjects) {
         throw new Error('Estrutura JSON inválida: faltam campos obrigatórios');
-      }
-
-      // Filtrar novamente por status no backend (garantia adicional)
-      if (Array.isArray(extractedData.subjects)) {
-        extractedData.subjects = extractedData.subjects.filter(
-          (subject: any) => subject.status === 'MATRICULADO'
-        );
-        console.log(`Filtered subjects: ${extractedData.subjects.length} with MATRICULADO status`);
       }
 
     } catch (parseError) {
@@ -243,13 +293,75 @@ REGRA: Pegue o horário de INÍCIO do primeiro bloco e o horário de FIM do últ
         JSON.stringify({ 
           error: 'Falha ao interpretar resposta da IA',
           details: parseError instanceof Error ? parseError.message : 'Erro desconhecido',
-          rawContent: content.substring(0, 500)
         }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('Successfully extracted and validated data');
+    // ============================================
+    // PÓS-PROCESSAMENTO DETERMINÍSTICO
+    // ============================================
+
+    console.log('=== INICIANDO PÓS-PROCESSAMENTO ===');
+    console.log(`Total de disciplinas da IA: ${extractedData.subjects?.length || 0}`);
+
+    if (Array.isArray(extractedData.subjects)) {
+      const originalCount = extractedData.subjects.length;
+      
+      // 1. FILTRO ABSOLUTO DE STATUS
+      extractedData.subjects = extractedData.subjects.filter((subject: any) => {
+        const status = (subject.status || '').toUpperCase().trim();
+        
+        // Rejeitar se status está na lista de inválidos
+        if (INVALID_STATUS.some(inv => status.includes(inv))) {
+          console.log(`[REMOVIDO] "${subject.name}" - status: ${subject.status}`);
+          return false;
+        }
+        
+        // Aceitar se contém MATRICULADO
+        if (status.includes('MATRICULADO')) {
+          console.log(`[MANTIDO] "${subject.name}" - status: ${subject.status}`);
+          return true;
+        }
+        
+        // Caso ambíguo - rejeitar por segurança
+        console.log(`[REMOVIDO] "${subject.name}" - status ambíguo: ${subject.status}`);
+        return false;
+      });
+      
+      console.log(`Filtro de status: ${originalCount} -> ${extractedData.subjects.length} disciplinas`);
+
+      // 2. RECALCULAR HORÁRIOS USANDO PARSER DETERMINÍSTICO
+      for (const subject of extractedData.subjects) {
+        const sigaaCode = subject.sigaa_schedule;
+        
+        if (sigaaCode && typeof sigaaCode === 'string') {
+          console.log(`[PARSE] "${subject.name}" - código SIGAA: "${sigaaCode}"`);
+          
+          // Usar parser determinístico - IGNORA horários que a IA inventou
+          const parsedSchedules = parseMultipleSigaaCodes(sigaaCode);
+          
+          if (parsedSchedules.length > 0) {
+            // Adicionar location se disponível
+            const location = subject.location || null;
+            subject.schedules = parsedSchedules.map(s => ({ ...s, location }));
+            
+            console.log(`[SUCESSO] "${subject.name}" -> ${parsedSchedules.length} horário(s) calculados`);
+          } else {
+            console.warn(`[FALHA] "${subject.name}" - não foi possível parsear "${sigaaCode}"`);
+            subject.schedules = [];
+          }
+        } else {
+          console.warn(`[SEM CÓDIGO] "${subject.name}" - sigaa_schedule vazio ou inválido`);
+          subject.schedules = subject.schedules || [];
+        }
+        
+        // Normalizar status
+        subject.status = 'MATRICULADO';
+      }
+    }
+
+    console.log('=== PÓS-PROCESSAMENTO CONCLUÍDO ===');
     console.log('Profile:', JSON.stringify(extractedData.profile));
     console.log('Subjects count:', extractedData.subjects?.length || 0);
 
